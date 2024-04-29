@@ -8,4 +8,6 @@ num_choices: 1
 
 # a list of model to generate answers
 model_list:
-  - gpt-3.5-turbo-0125
+  # - gpt-3.5-turbo-0125
+  # - dbrx-seed-1
+  - dbrx-bon-16-seed-1-redo

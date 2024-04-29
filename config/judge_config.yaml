@@ -22,4 +22,5 @@ prompt_template: ["<|User Prompt|>\n{question_1}\n\n<|The Start of Assistant A's
 
 # Add your model below for evaluation
 model_list:
-  - gpt-3.5-turbo-0125
+  # - gpt-3.5-turbo-0125
+  - dbrx-seed-1

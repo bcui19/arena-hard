@@ -172,6 +172,8 @@ if __name__ == "__main__":
 
     endpoint_info = endpoint_list[configs["judge_model"]]
 
+    print ("endpoint info is: ", endpoint_info)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=endpoint_info["parallel"]) as executor:
         futures = []
         for model in models:

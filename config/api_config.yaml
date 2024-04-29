@@ -18,10 +18,33 @@ gpt-4-0314:
     model_name: gpt-4-0314
     endpoints: null
     api_type: openai
-    parallel: 8
+    parallel: 256
 
 gpt-4-1106-preview:
     model_name: gpt-4-1106-preview
     endpoints: null
     api_type: openai
-    parallel: 8
+    parallel: 64
+
+dbrx-seed-1:
+    model_name: http://0.0.0.0:8080/v2/completions
+    endpoints: null
+    api_type: databricks
+    parallel: 128
+
+dbrx-bon-16-seed-1-redo:
+    model_name: http://0.0.0.0:8080/v2/completions
+    endpoints: null
+    api_type: databricks
+    parallel: 256
+    reward_model_addr: http://10.42.235.21:8080/v2/completions
+    num_rm_samples: 16
+
+
+dbrx-bon-16-seed-2:
+    model_name: http://0.0.0.0:8080/v2/completions
+    endpoints: null
+    api_type: databricks
+    parallel: 64
+    reward_model_addr: http://10.42.235.21:8080/v2/completions
+    num_rm_samples: 16

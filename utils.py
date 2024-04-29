@@ -1,8 +1,10 @@
 import os
+import copy
 import json
 import time
 import yaml
 import random
+import requests
 
 from typing import Optional
 from glob import glob
@@ -322,6 +324,128 @@ def chat_completion_cohere(model, messages, temperature, max_tokens):
             print(type(e), e)
             break
     
+    return output
+
+
+def get_response_batch(prompts, url, max_tokens, temperature, api_key, api_args, retries_left=3):
+    import requests
+    headers = {"Authorization": api_key, "Content-Type": "application/json"}
+
+    data = {
+        "prompt": prompts, 
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "use_raw_prompt": True,
+        "stop": ["<|im_end|>"],
+        **api_args
+    }
+    
+    # Remove things from payload
+    for k,v in api_args.items():
+        if v is None:
+            data.pop(k)
+    
+    response = requests.post(url, headers=headers, json=data, timeout=360)
+
+    if response.status_code == 400 and "Please reduce the length of your prompt." in response.text:
+            return None
+    elif  response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+        if retries_left > 0:
+            print("Retrying...")
+            # sleep for longer each retry
+            time.sleep(5 * (6 - retries_left))
+            return get_response_batch(prompts, url, max_tokens, temperature=temperature, api_key=api_key, api_args=api_args, retries_left=retries_left-1)
+        else:
+            raise Exception("Too many retries")
+    else:
+        response = response.json()
+        
+        # need to trim the leading space on all choices
+        responses = []
+        finish_reasons = []
+        for i, choice in enumerate(response["choices"]):
+            if "text" in choice:
+                responses.append(choice["text"].strip())
+                finish_reasons.append(choice["finish_reason"])
+            else: # assuming chat
+                responses.append(choice["message"]["content"].strip())
+                finish_reasons.append(choice["finish_reason"])
+        return responses# , finish_reasons, response['usage']['prompt_tokens'], response['usage']['completion_tokens']
+
+
+def pairwise_reward_model_inf(url, input_ids, retries_left=3):
+    custom_input = [{
+        'input_ids': input_ids,
+    }]
+
+    headers = {"Authorization": os.environ['MOSAICML_API_KEY'],
+               "Content-Type": "application/json"}
+
+    request = {'custom_input': custom_input, 'prompt': ''}
+    inf_data = json.dumps(request)
+
+    response = requests.post(f'{url}',
+                                headers=headers,
+                                data=inf_data,
+                                timeout=360)
+
+    if response.status_code == 400 and 'Please reduce the length of your prompt.' in response.text:
+        return None
+    elif response.status_code != 200:
+        if retries_left > 0:
+            print("Retrying...", response.status_code)
+            # sleep for longer each retry
+            time.sleep(5 * (6 - retries_left))
+            return get_response_batch(input_ids, retries_left=retries_left - 1)
+        else:
+            raise Exception('Too many retries')
+    else:
+        response = response.json()
+        # print("REWARD CALL", response)
+
+        final_rewards = []
+        for choice in response['choices']:
+            final_reward = choice['metadata']['rewards'][-1]
+            final_rewards.append(final_reward)
+        return final_rewards
+
+
+def db_inference_deployment(model, tokenizer, messages, temperature, max_tokens, api_key, api_args={}, api_dict=None, reward_model_addr=None, num_rm_samples=1):
+    from transformers import AutoTokenizer
+    prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    
+    orig_len = len(messages)
+
+    if reward_model_addr is not None:
+        samples = []
+
+        for i in range(num_rm_samples):
+            print ("i is: ", i)
+            assert len(messages) == orig_len
+            responses = get_response_batch(prompt, model, max_tokens, api_key=api_key, api_args=api_args, temperature = temperature)[0]
+
+            rm_messages = messages
+            rm_messages.append({'role': 'assistant', 'content': responses})
+            assert len(rm_messages) == orig_len + 1
+            rm_input = tokenizer.apply_chat_template(rm_messages, tokenize = True) + [tokenizer.eos_token_id]
+
+            reward_score = pairwise_reward_model_inf(reward_model_addr, rm_input)[0]
+            samples.append((responses, reward_score))
+
+            # remove the last appended message
+            rm_messages.pop()
+
+        samples = sorted(samples, key = lambda x: x[1])
+        output = samples[-1][0]
+
+    else:
+        responses = get_response_batch(prompt, model, max_tokens, api_key=api_key, api_args=api_args, temperature = temperature)[0]
+
+        output = responses
+
+    # print (output)
     return output
 
 

@@ -19,6 +19,7 @@ from utils import (
     make_config,
     get_endpoint,
     chat_completion_openai,
+    db_inference_deployment,
     chat_completion_anthropic,
     chat_completion_openai_azure,
     chat_completion_mistral,
@@ -29,9 +30,11 @@ from utils import (
     temperature_config,
 )
 
+from transformers import AutoTokenizer
+
 
 def get_answer(
-    question: dict, model: str, endpoint_info: dict, num_choices: int, max_tokens: int, temperature: float, answer_file: str, api_dict: dict
+    question: dict, model: str, endpoint_info: dict, num_choices: int, max_tokens: int, temperature: float, answer_file: str, api_dict: dict, tokenizer=None
 ):
     if question["category"] in temperature_config:
         temperature = temperature_config[question["category"]]
@@ -77,6 +80,15 @@ def get_answer(
                                                 messages=conv,
                                                 temperature=temperature,
                                                 max_tokens=max_tokens)
+            elif api_type == 'databricks':
+                output = db_inference_deployment(model=endpoint_info['model_name'],
+                                                 messages=conv,
+                                                 temperature=temperature,
+                                                 max_tokens=max_tokens,
+                                                 tokenizer=tokenizer,
+                                                 api_key=os.environ['MOSAICML_API_KEY'],
+                                                 num_rm_samples=endpoint_info.get('num_rm_samples', 1),
+                                                 reward_model_addr=endpoint_info.get('reward_model_addr', None))
             else:
                 output = chat_completion_openai(model=endpoint_info["model_name"], 
                                                 messages=conv, 
@@ -152,6 +164,11 @@ if __name__ == "__main__":
         else:
             max_tokens = [settings["max_tokens"]] * len(questions)
 
+        # TODO: don't hard code
+        tokenizer = AutoTokenizer.from_pretrained("rajammanabrolu/gpt-4-chat", trust_remote_code=True)
+
+        print ("parallel is: ", parallel)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as executor:
             futures = []
             count = 0
@@ -169,7 +186,20 @@ if __name__ == "__main__":
                     settings["temperature"],
                     answer_file,
                     get_endpoint(endpoint_info["endpoints"]),
+                    tokenizer
                 )
+                # get_answer(
+                #     question,
+                #     model,
+                #     endpoint_info,
+                #     settings["num_choices"],
+                #     max_tokens[index],
+                #     settings["temperature"],
+                #     answer_file,
+                #     get_endpoint(endpoint_info["endpoints"]),
+                #     tokenizer=tokenizer,
+                # )
+
                 futures.append(future)
             if count > 0:
                 print(f"{count} number of existing answers")
