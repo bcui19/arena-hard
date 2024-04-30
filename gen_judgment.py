@@ -62,6 +62,9 @@ def judgment(**args):
         "judge": model,
         "games":[]
         }
+    
+    print ("question is: ", question)
+    print ("answer is: ", answer)
 
     for game in range(num_games):
         conv = [{"role": "system", "content": configs["system_prompt"]}]
@@ -206,6 +209,7 @@ if __name__ == "__main__":
                 kwargs["output_file"] = output_files[model]
                 kwargs["regex_pattern"] = pattern
                 future = executor.submit(judgment, **kwargs)
+                # judgment(**kwargs)
                 futures.append(future)
 
             if count > 0:

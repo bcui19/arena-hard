@@ -327,7 +327,7 @@ def chat_completion_cohere(model, messages, temperature, max_tokens):
     return output
 
 
-def get_response_batch(prompts, url, max_tokens, temperature, api_key, api_args, retries_left=3):
+def get_response_batch(prompts, url, max_tokens, temperature, api_key, api_args, retries_left=5):
     import requests
     headers = {"Authorization": api_key, "Content-Type": "application/json"}
 
@@ -375,7 +375,7 @@ def get_response_batch(prompts, url, max_tokens, temperature, api_key, api_args,
         return responses# , finish_reasons, response['usage']['prompt_tokens'], response['usage']['completion_tokens']
 
 
-def pairwise_reward_model_inf(url, input_ids, retries_left=3):
+def pairwise_reward_model_inf(url, input_ids, retries_left=5):
     custom_input = [{
         'input_ids': input_ids,
     }]
@@ -398,7 +398,7 @@ def pairwise_reward_model_inf(url, input_ids, retries_left=3):
             print("Retrying...", response.status_code)
             # sleep for longer each retry
             time.sleep(5 * (6 - retries_left))
-            return get_response_batch(input_ids, retries_left=retries_left - 1)
+            return pairwise_reward_model_inf(url, input_ids, retries_left=retries_left - 1)
         else:
             raise Exception('Too many retries')
     else:
@@ -424,14 +424,26 @@ def db_inference_deployment(model, tokenizer, messages, temperature, max_tokens,
         for i in range(num_rm_samples):
             print ("i is: ", i)
             assert len(messages) == orig_len
-            responses = get_response_batch(prompt, model, max_tokens, api_key=api_key, api_args=api_args, temperature = temperature)[0]
 
-            rm_messages = messages
-            rm_messages.append({'role': 'assistant', 'content': responses})
-            assert len(rm_messages) == orig_len + 1
-            rm_input = tokenizer.apply_chat_template(rm_messages, tokenize = True) + [tokenizer.eos_token_id]
+            while True:
+                responses = get_response_batch(prompt, model, max_tokens, api_key=api_key, api_args=api_args, temperature = temperature)[0]
 
-            reward_score = pairwise_reward_model_inf(reward_model_addr, rm_input)[0]
+                rm_messages = messages
+                rm_messages.append({'role': 'assistant', 'content': responses})
+                assert len(rm_messages) == orig_len + 1
+                rm_input = tokenizer.apply_chat_template(rm_messages, tokenize = True) + [tokenizer.eos_token_id]
+
+                # resample if we go over the RM limit
+                # TODO: don't hard code
+                if len(rm_input) > 4096:
+                    print ("resampling because rm input is: ", len(rm_input))
+                    # Remove the last appended message since it's too long for the reward mdoel
+                    rm_messages.pop()
+                    continue
+
+                reward_score = pairwise_reward_model_inf(reward_model_addr, rm_input)[0]
+                break
+
             samples.append((responses, reward_score))
 
             # remove the last appended message
