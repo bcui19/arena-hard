@@ -332,11 +332,13 @@ def get_response_batch(prompts, url, max_tokens, temperature, api_key, api_args,
     headers = {"Authorization": api_key, "Content-Type": "application/json"}
 
     data = {
-        "prompt": prompts, 
+        # "prompt": prompts, 
+        "messages": prompts,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": 1024,
         "use_raw_prompt": True,
         "stop": ["<|im_end|>"],
+        "model": '',
         **api_args
     }
     
@@ -412,13 +414,40 @@ def pairwise_reward_model_inf(url, input_ids, retries_left=5):
         return final_rewards
 
 
+def format_messages_for_reward(messages, responses, tokenizer):
+    messages.append({'role': 'assistant', 'content': responses})
+    rm_input = tokenizer.apply_chat_template(messages, tokenize = True) + [tokenizer.eos_token_id]
+    messages.pop()
+    return rm_input
+
+
+def ping_db_with_messages(messages, base_url, temperature, top_p=1):
+    from openai import OpenAI
+    client = OpenAI(
+        api_key=os.environ['DATABRICKS_TOKEN'],
+        base_url=base_url
+    )
+
+    print (messages)
+
+    chat_completion = client.chat.completions.create(
+        messages=messages, # Chat formatted messages
+        model='databricks-dbrx-instruct',
+        temperature=temperature,
+        top_p=top_p,
+    )
+    response = chat_completion.choices[0].message.content
+    return response
+
+
 def db_inference_deployment(model, tokenizer, messages, temperature, max_tokens, api_key, api_args={}, api_dict=None, reward_model_addr=None, num_rm_samples=1):
     from transformers import AutoTokenizer
     prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     
     orig_len = len(messages)
 
-    if reward_model_addr is not None:
+    chosen_reward_score = None
+    if reward_model_addr is not None and num_rm_samples > 1:
         samples = []
 
         for i in range(num_rm_samples):
@@ -453,12 +482,24 @@ def db_inference_deployment(model, tokenizer, messages, temperature, max_tokens,
         output = samples[-1][0]
 
     else:
-        responses = get_response_batch(prompt, model, max_tokens, api_key=api_key, api_args=api_args, temperature = temperature)[0]
+        if 'serving-endpoints' in model:
+            responses = ping_db_with_messages(messages, model, temperature)
+
+        else:
+            responses = get_response_batch(messages, model, max_tokens, api_key=api_key, api_args=api_args, temperature = temperature)[0]
+
+            if 'Confidence: ' in responses:
+                responses = responses[:responses.find('Confidence: ')]
+
+        if reward_model_addr is not None:
+            rm_messages = format_messages_for_reward (messages, responses, tokenizer)
+            chosen_reward_score = pairwise_reward_model_inf(reward_model_addr, rm_messages)[0]
+            print ("reward score is: ", chosen_reward_score)
 
         output = responses
 
     # print (output)
-    return output
+    return output, chosen_reward_score
 
 
 def reorg_answer_file(answer_file):

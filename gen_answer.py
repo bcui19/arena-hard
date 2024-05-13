@@ -81,7 +81,7 @@ def get_answer(
                                                 temperature=temperature,
                                                 max_tokens=max_tokens)
             elif api_type == 'databricks':
-                output = db_inference_deployment(model=endpoint_info['model_name'],
+                output, chosen_reward_score = db_inference_deployment(model=endpoint_info['model_name'],
                                                  messages=conv,
                                                  temperature=temperature,
                                                  max_tokens=max_tokens,
@@ -108,6 +108,9 @@ def get_answer(
         "choices": choices,
         "tstamp": time.time(),
     }
+
+    if chosen_reward_score is not None:
+        ans['reward'] = chosen_reward_score
 
     os.makedirs(os.path.dirname(answer_file), exist_ok=True)
     with open(answer_file, "a") as fout:
