@@ -332,8 +332,8 @@ def get_response_batch(prompts, url, max_tokens, temperature, api_key, api_args,
     headers = {"Authorization": api_key, "Content-Type": "application/json"}
 
     data = {
-        # "prompt": prompts, 
-        "messages": prompts,
+        "prompt": prompts, 
+        # "messages": prompts,
         "temperature": temperature,
         "max_tokens": 1024,
         "use_raw_prompt": True,
@@ -346,6 +346,8 @@ def get_response_batch(prompts, url, max_tokens, temperature, api_key, api_args,
     for k,v in api_args.items():
         if v is None:
             data.pop(k)
+    
+    print ("temperature is: ", temperature)
     
     response = requests.post(url, headers=headers, json=data, timeout=360)
 
@@ -451,7 +453,7 @@ def db_inference_deployment(model, tokenizer, messages, temperature, max_tokens,
         samples = []
 
         for i in range(num_rm_samples):
-            print ("i is: ", i)
+            print ("i is: ", i, "temperature is: ", temperature)
             assert len(messages) == orig_len
 
             while True:
@@ -480,13 +482,14 @@ def db_inference_deployment(model, tokenizer, messages, temperature, max_tokens,
 
         samples = sorted(samples, key = lambda x: x[1])
         output = samples[-1][0]
+        chosen_reward_score = samples[-1][1]
 
     else:
         if 'serving-endpoints' in model:
             responses = ping_db_with_messages(messages, model, temperature)
 
         else:
-            responses = get_response_batch(messages, model, max_tokens, api_key=api_key, api_args=api_args, temperature = temperature)[0]
+            responses = get_response_batch(prompt, model, max_tokens, api_key=api_key, api_args=api_args, temperature = temperature)[0]
 
             if 'Confidence: ' in responses:
                 responses = responses[:responses.find('Confidence: ')]
